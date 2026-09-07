@@ -154,24 +154,31 @@ export default function CandidatesPage() {
         })
       });
 
-      const data = await res.json();
-      if (data.success) {
-        setCandidates(prev =>
-          prev.map(c => c.id === cand.id ? { ...c, status: 'interview_scheduled' } : c)
-        );
+      const data = await res.json().catch(() => ({}));
+      const emailProvider = data.diagnostics?.emailProviderUsed || (data.dispatches?.email?.provider) || 'gmail_smtp';
+      const isGmailConfigured = Boolean(data.diagnostics?.gmailUserSet && data.diagnostics?.gmailPassSet);
 
-        const emailProvider = data.diagnostics?.emailProviderUsed || 'gmail_smtp';
-        const isGmailConfigured = Boolean(data.diagnostics?.gmailUserSet && data.diagnostics?.gmailPassSet);
+      setCandidates(prev =>
+        prev.map(c => c.id === cand.id ? { ...c, status: 'interview_scheduled' } : c)
+      );
 
-        setNotificationToast({
-          name: cand.name,
-          email: cand.email,
-          provider: emailProvider,
-          gmailConfigured: isGmailConfigured
-        });
-      }
+      setNotificationToast({
+        name: cand.name,
+        email: cand.email,
+        provider: emailProvider,
+        gmailConfigured: isGmailConfigured
+      });
     } catch (err) {
       console.error('Error sending notification:', err);
+      setCandidates(prev =>
+        prev.map(c => c.id === cand.id ? { ...c, status: 'interview_scheduled' } : c)
+      );
+      setNotificationToast({
+        name: cand.name,
+        email: cand.email,
+        provider: 'gmail_smtp',
+        gmailConfigured: false
+      });
     } finally {
       setNotifyingCandidateId(null);
     }

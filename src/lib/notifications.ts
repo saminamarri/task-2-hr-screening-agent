@@ -112,7 +112,9 @@ export async function sendGmailSmtpEmail({
           user: gmailUser.trim(),
           pass: cleanPass
         },
-        connectionTimeout: 10000
+        connectionTimeout: 5000,
+        greetingTimeout: 4000,
+        socketTimeout: 5000
       });
 
       const info = await transporter.sendMail({
