@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Eye, Calendar, Sparkles, RefreshCw, CheckCircle2, Filter, ArrowUpDown } from 'lucide-react';
+import { Users, Search, Eye, Calendar, Sparkles, RefreshCw, CheckCircle2, Filter, ArrowUpDown, Send } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { MOCK_CANDIDATES } from '@/lib/mock-data';
@@ -30,9 +30,10 @@ export default function CandidatesPage() {
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [interviewCandidate, setInterviewCandidate] = useState<Candidate | null>(null);
   const [screeningCandidateId, setScreeningCandidateId] = useState<string | null>(null);
+  const [notifyingCandidateId, setNotifyingCandidateId] = useState<string | null>(null);
   const [screeningAlert, setScreeningAlert] = useState<{ id: string; name: string; score: number; status: string } | null>(null);
+  const [notificationToast, setNotificationToast] = useState<{ name: string; email: string; provider: string; gmailConfigured: boolean } | null>(null);
 
-  // Fetch candidates from Supabase sorted by score (highest first)
   const fetchCandidates = async () => {
     setIsLoading(true);
     let fetchedData: CandidateRow[] = [];
@@ -62,7 +63,6 @@ export default function CandidatesPage() {
       }
     }
 
-    // Fallback if Supabase is empty or pending credentials
     if (fetchedData.length === 0) {
       fetchedData = MOCK_CANDIDATES.map(cand => ({
         id: cand.id,
@@ -79,9 +79,7 @@ export default function CandidatesPage() {
       }));
     }
 
-    // Sort by score descending (highest first)
     fetchedData.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-
     setCandidates(fetchedData);
     setIsLoading(false);
   };
@@ -90,7 +88,6 @@ export default function CandidatesPage() {
     fetchCandidates();
   }, []);
 
-  // Filter candidates by search name and status dropdown
   const filteredCandidates = candidates.filter(cand => {
     const matchesSearch = cand.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || cand.status.toLowerCase() === statusFilter.toLowerCase();
@@ -99,22 +96,12 @@ export default function CandidatesPage() {
 
   const getStatusBadge = (status: string) => {
     const s = status.toLowerCase();
-    if (s === 'shortlisted') {
-      return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-    }
-    if (s === 'rejected') {
-      return 'bg-rose-100 text-rose-800 border-rose-300';
-    }
-    if (s === 'interview_scheduled' || s === 'interview scheduled') {
-      return 'bg-indigo-100 text-indigo-800 border-indigo-300';
-    }
-    // Default: pending (gray)
+    if (s === 'shortlisted') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+    if (s === 'rejected') return 'bg-rose-100 text-rose-800 border-rose-300';
+    if (s === 'interview_scheduled' || s === 'interview scheduled') return 'bg-indigo-100 text-indigo-800 border-indigo-300';
     return 'bg-slate-100 text-slate-700 border-slate-300';
   };
 
-  /**
-   * Run AI Screening trigger via Claude API (/api/screen-candidate)
-   */
   const handleRunAiScreening = async (cand: CandidateRow) => {
     setScreeningCandidateId(cand.id);
     setScreeningAlert(null);
@@ -136,19 +123,12 @@ export default function CandidatesPage() {
 
         setCandidates(prev => {
           const updated = prev.map(c =>
-            c.id === cand.id
-              ? { ...c, score, score_reasoning: reasoning, status }
-              : c
+            c.id === cand.id ? { ...c, score, score_reasoning: reasoning, status } : c
           );
           return updated.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
         });
 
-        setScreeningAlert({
-          id: cand.id,
-          name: cand.name,
-          score,
-          status
-        });
+        setScreeningAlert({ id: cand.id, name: cand.name, score, status });
       }
     } catch (err) {
       console.error('Error running AI screening:', err);
@@ -157,7 +137,46 @@ export default function CandidatesPage() {
     }
   };
 
-  // Convert CandidateRow to Candidate format for Modal view
+  const handleOneClickNotify = async (cand: CandidateRow) => {
+    setNotifyingCandidateId(cand.id);
+    setNotificationToast(null);
+
+    try {
+      const res = await fetch('/api/send-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          candidateId: cand.id,
+          candidateName: cand.name,
+          candidateEmail: cand.email,
+          scheduledTime: new Date(Date.now() + 86400000).toISOString(),
+          customMessage: `Dear ${cand.name}, your candidate profile has been processed by our HR Screening Agent. We look forward to scheduling your interview!`
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCandidates(prev =>
+          prev.map(c => c.id === cand.id ? { ...c, status: 'interview_scheduled' } : c)
+        );
+
+        const emailProvider = data.diagnostics?.emailProviderUsed || 'gmail_smtp';
+        const isGmailConfigured = Boolean(data.diagnostics?.gmailUserSet && data.diagnostics?.gmailPassSet);
+
+        setNotificationToast({
+          name: cand.name,
+          email: cand.email,
+          provider: emailProvider,
+          gmailConfigured: isGmailConfigured
+        });
+      }
+    } catch (err) {
+      console.error('Error sending notification:', err);
+    } finally {
+      setNotifyingCandidateId(null);
+    }
+  };
+
   const mapToCandidateModal = (row: CandidateRow): Candidate => {
     if (row.rawCandidateObj) return row.rawCandidateObj;
     return {
@@ -165,7 +184,7 @@ export default function CandidatesPage() {
       name: row.name,
       email: row.email,
       phone: row.phone || '+1 (555) 019-2831',
-      appliedDate: row.created_at ? new Date(row.created_at).toISOString().split('T')[0] : '2026-09-05',
+      appliedDate: row.created_at ? new Date(row.created_at).toISOString().split('T')[0] : '2026-09-07',
       targetRole: 'Senior Full Stack Engineer',
       status: row.status as any,
       fileName: 'Candidate_CV.pdf',
@@ -195,7 +214,7 @@ export default function CandidatesPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900">Candidates Database</h1>
-            <p className="text-xs text-slate-500">All candidates fetched from Supabase, sorted by score (highest first)</p>
+            <p className="text-xs text-slate-500">Sorted by score (highest first) &bull; 1-Click Gmail SMTP & Slack dispatches</p>
           </div>
         </div>
 
@@ -208,13 +227,33 @@ export default function CandidatesPage() {
         </button>
       </div>
 
-      {/* Live AI Alert */}
+      {/* 1-Click Notification Toast with Diagnostics */}
+      {notificationToast && (
+        <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl text-xs font-semibold flex items-center justify-between shadow-xl animate-in zoom-in duration-200 border border-blue-700">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center text-white">
+              <Send className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="font-bold text-sm">1-Click Notification Dispatched!</p>
+              <p className="text-blue-200 text-xs mt-0.5">
+                Sent email to <strong className="text-white">{notificationToast.email}</strong> via <span className="bg-blue-800 px-1.5 py-0.5 rounded text-[11px] font-mono">{notificationToast.provider}</span> &bull; Gmail API Active: <span className={notificationToast.gmailConfigured ? "text-emerald-300 font-bold" : "text-amber-300 font-bold"}>{notificationToast.gmailConfigured ? "YES" : "Pending Vercel Env Vars"}</span>
+              </p>
+            </div>
+          </div>
+          <button onClick={() => setNotificationToast(null)} className="text-xs font-bold text-blue-300 hover:text-white underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Live AI Screening Alert */}
       {screeningAlert && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-2xl text-xs font-semibold flex items-center justify-between animate-in zoom-in duration-200">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
             <span>
-              Claude AI Screening Completed for <strong className="text-slate-900">{screeningAlert.name}</strong>: Score <strong className="text-emerald-700">{screeningAlert.score}%</strong> &rarr; Candidate status set to <span className="uppercase font-extrabold px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">{screeningAlert.status}</span>
+              Claude AI Screening Completed for <strong className="text-slate-900">{screeningAlert.name}</strong>: Score <strong className="text-emerald-700">{screeningAlert.score}%</strong> &rarr; Status updated to <span className="uppercase font-extrabold px-2 py-0.5 rounded bg-emerald-200 text-emerald-900">{screeningAlert.status}</span>
             </span>
           </div>
           <button onClick={() => setScreeningAlert(null)} className="text-xs font-bold text-emerald-700 hover:underline">
@@ -225,8 +264,6 @@ export default function CandidatesPage() {
 
       {/* Filter & Search Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-        
-        {/* Search Box by Name */}
         <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
@@ -238,7 +275,6 @@ export default function CandidatesPage() {
           />
         </div>
 
-        {/* Status Filter Dropdown */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Filter className="w-4 h-4 text-slate-400" />
           <label className="text-xs font-bold text-slate-700 whitespace-nowrap">Status:</label>
@@ -337,6 +373,27 @@ export default function CandidatesPage() {
 
                       {/* Actions */}
                       <td className="py-4 px-6 text-right space-x-2">
+                        
+                        {/* 1-Click Notify Button */}
+                        <button
+                          onClick={() => handleOneClickNotify(cand)}
+                          disabled={notifyingCandidateId === cand.id}
+                          className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-extrabold text-xs rounded-xl shadow-sm transition-all inline-flex items-center gap-1.5 disabled:opacity-50"
+                          title="1-Click Dispatch: Send Gmail SMTP Email & Slack Webhook alert"
+                        >
+                          {notifyingCandidateId === cand.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Sending...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-3.5 h-3.5 text-blue-300" />
+                              <span>1-Click Notify</span>
+                            </>
+                          )}
+                        </button>
+
                         {/* Run AI Screening Button */}
                         <button
                           onClick={() => handleRunAiScreening(cand)}
@@ -352,20 +409,20 @@ export default function CandidatesPage() {
                           ) : (
                             <>
                               <Sparkles className="w-3.5 h-3.5" />
-                              <span>Run AI Screening</span>
+                              <span>AI Screen</span>
                             </>
                           )}
                         </button>
 
-                        {/* Schedule Interview Button (Enabled for shortlisted candidates) */}
+                        {/* Schedule Interview Button */}
                         {isShortlisted ? (
                           <button
                             onClick={() => setInterviewCandidate(mapToCandidateModal(cand))}
                             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all inline-flex items-center gap-1 animate-pulse"
-                            title="Schedule Interview for shortlisted candidate"
+                            title="Schedule Interview slot for shortlisted candidate"
                           >
                             <Calendar className="w-3.5 h-3.5" />
-                            <span>Schedule Interview</span>
+                            <span>Schedule</span>
                           </button>
                         ) : (
                           <button
