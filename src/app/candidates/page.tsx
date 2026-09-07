@@ -168,6 +168,9 @@ export default function CandidatesPage() {
         provider: emailProvider,
         gmailConfigured: isGmailConfigured
       });
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     } catch (err) {
       console.error('Error sending notification:', err);
       setCandidates(prev =>
