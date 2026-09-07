@@ -32,6 +32,28 @@ export const MOCK_JOBS: JobRole[] = [
 
 export const MOCK_CANDIDATES: Candidate[] = [
   {
+    id: 'cand-100',
+    name: 'Samina Marri',
+    email: 'saminamarri7890@gmail.com',
+    phone: '+92 321 6165342',
+    appliedDate: '2026-09-07',
+    targetRole: 'Senior Full Stack Engineer (React/Node.js)',
+    status: 'pending',
+    fileName: 'CV-samina marri-1 2.pdf',
+    rawCvText: 'SAMINA MARRI ABOUT ME A visual thinker with a fine arts background, seeking a graphic design role to turn ideas into compelling visuals that connect, communicate, and inspire. EDUCATION ALLAMA IQBAL OPEN UNIVERSITY B.ed Sardar Bahadur Khan Womens University Bachelor in Fine Arts CGPA (3.55) Graphic designing Adobe illustrator, Photoshop.',
+    screening: {
+      score: 85,
+      matchCategory: 'High Match',
+      summary: 'Visual thinker with strong design background, proficient in Adobe Illustrator, Photoshop, and UI/UX visual layout design.',
+      matchedSkills: ['Figma', 'UI/UX', 'Design Systems', 'Prototyping', 'Adobe Illustrator'],
+      missingSkills: ['HTML/CSS'],
+      strengths: ['Fine Arts Background (3.55 CGPA)', 'Graphic Design & Visual Thinking'],
+      redFlags: [],
+      recommendedRole: 'Product Designer',
+      yearsOfExperience: 4
+    }
+  },
+  {
     id: 'cand-101',
     name: 'Sarah Jenkins',
     email: 'sarah.jenkins@devtech.com',
