@@ -1,19 +1,26 @@
-import { Resend } from 'resend';
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 /**
- * Send Slack Incoming Webhook Notification when a candidate is shortlisted (score >= 70)
- * Message format: "New candidate shortlisted: [Name] - Score: [Score]"
+ * Send Slack Notification via Incoming Webhook
  */
-export async function sendSlackShortlistNotification({
+export async function sendSlackNotification({
   candidateName,
-  score
+  score,
+  title,
+  customMessage
 }: {
   candidateName: string;
-  score: number;
+  score?: number;
+  title?: string;
+  customMessage?: string;
 }) {
   const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
-  const messageText = `New candidate shortlisted: ${candidateName} - Score: ${score}%`;
+  const messageText = customMessage || (
+    score !== undefined
+      ? `🎯 *New Candidate Shortlisted*\n*Candidate:* ${candidateName}\n*Match Score:* ${score}%\n*Status:* Shortlisted for Interview`
+      : `🔔 *HR Agent Notification*\n*Candidate:* ${candidateName}\n*Update:* ${title || 'Interview confirmation dispatched.'}`
+  );
 
   if (slackWebhookUrl && !slackWebhookUrl.includes('placeholder')) {
     try {
@@ -25,58 +32,107 @@ export async function sendSlackShortlistNotification({
 
       if (response.ok) {
         console.log(`[SLACK SUCCESS] Webhook notification dispatched: "${messageText}"`);
-        return { success: true, channel: 'slack' };
-      } else {
-        console.warn(`[SLACK WARN] Slack Webhook returned status ${response.status}`);
+        return { success: true, channel: 'slack', message: messageText };
       }
     } catch (err) {
       console.error('[SLACK ERROR] Failed to send Slack Webhook notification:', err);
     }
   }
 
-  // Simulation fallback logging
   console.log(`[SLACK SIMULATION] Channel Webhook Message: "${messageText}"`);
-  return { success: true, simulated: true, channel: 'slack' };
+  return { success: true, simulated: true, channel: 'slack', message: messageText };
 }
 
+export const sendSlackShortlistNotification = sendSlackNotification;
+
 /**
- * Send Email Notification when an interview is confirmed (via Resend with Nodemailer fallback)
+ * Send Gmail SMTP Email Confirmation directly to candidate
  */
-export async function sendInterviewConfirmationEmail({
+export async function sendGmailSmtpEmail({
   candidateEmail,
   candidateName,
-  scheduledTime
+  scheduledTime,
+  customMessage
 }: {
   candidateEmail: string;
   candidateName: string;
   scheduledTime: string;
+  customMessage?: string;
 }) {
   const formattedTime = new Date(scheduledTime).toLocaleString('en-US', {
     dateStyle: 'full',
     timeStyle: 'short'
   });
 
-  const subject = `Interview Confirmed: ${candidateName}`;
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+  const resendKey = process.env.RESEND_API_KEY;
+
+  const subject = `Interview Confirmation: ${candidateName}`;
   const htmlContent = `
-    <div style="font-family: sans-serif; padding: 20px; color: #1e293b;">
-      <h2 style="color: #2563eb;">Interview Confirmation</h2>
-      <p>Hello <strong>${candidateName}</strong>,</p>
-      <p>Your interview has been officially confirmed for:</p>
-      <p style="font-size: 16px; font-weight: bold; background: #f1f5f9; padding: 12px; border-radius: 8px; color: #0f172a;">
-        📅 ${formattedTime}
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #1e3a8a; font-size: 24px; margin: 0;">Interview Confirmation</h1>
+        <p style="color: #64748b; font-size: 14px; margin-top: 4px;">HR Candidate Screening Agent</p>
+      </div>
+
+      <p style="font-size: 15px; color: #334155;">Hello <strong>${candidateName}</strong>,</p>
+      
+      <p style="font-size: 14px; color: #334155; line-height: 1.6;">
+        ${customMessage || 'We are pleased to invite you for your upcoming interview round. Please find your confirmed schedule details below:'}
       </p>
-      <p>We look forward to speaking with you!</p>
-      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-      <p style="font-size: 12px; color: #64748b;">HR Recruitment Team | ScreenAI Agent</p>
+
+      <div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #2563eb; padding: 16px; border-radius: 12px; margin: 20px 0;">
+        <p style="margin: 0; font-size: 13px; color: #64748b; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Confirmed Schedule</p>
+        <p style="margin: 6px 0 0 0; font-size: 18px; font-weight: bold; color: #0f172a;">
+          📅 ${formattedTime}
+        </p>
+      </div>
+
+      <p style="font-size: 14px; color: #334155;">We look forward to speaking with you!</p>
+      
+      <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+      
+      <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">
+        Sent via ScreenAI HR Pro &bull; Automated Candidate Screening Platform
+      </p>
     </div>
   `;
 
-  const resendApiKey = process.env.RESEND_API_KEY;
-
-  // 1. Try Resend API
-  if (resendApiKey && !resendApiKey.includes('placeholder')) {
+  // 1. Direct Gmail SMTP via Port 465 SSL
+  if (gmailUser && gmailPass && !gmailUser.includes('placeholder') && !gmailPass.includes('placeholder')) {
     try {
-      const resend = new Resend(resendApiKey);
+      const cleanPass = gmailPass.replace(/\s+/g, '').trim();
+
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: gmailUser.trim(),
+          pass: cleanPass
+        },
+        connectionTimeout: 10000
+      });
+
+      const info = await transporter.sendMail({
+        from: `"HR Screening Team" <${gmailUser.trim()}>`,
+        to: candidateEmail.trim(),
+        subject,
+        html: htmlContent
+      });
+
+      console.log(`[GMAIL SMTP SUCCESS] Sent email to ${candidateEmail}:`, info.messageId);
+      return { success: true, provider: 'gmail_smtp', messageId: info.messageId };
+    } catch (gmailErr: any) {
+      console.error('[GMAIL SMTP ERROR] Failed to send via Gmail SMTP:', gmailErr);
+    }
+  }
+
+  // 2. Resend API Fallback
+  if (resendKey && !resendKey.includes('placeholder')) {
+    try {
+      const resend = new Resend(resendKey);
       const data = await resend.emails.send({
         from: 'HR Team <interviews@resend.dev>',
         to: [candidateEmail],
@@ -84,35 +140,34 @@ export async function sendInterviewConfirmationEmail({
         html: htmlContent
       });
 
-      console.log(`[RESEND EMAIL SUCCESS] Confirmation email sent to ${candidateEmail}:`, data);
+      console.log(`[RESEND SUCCESS] Sent email to ${candidateEmail}:`, data);
       return { success: true, provider: 'resend', data };
     } catch (resendErr) {
-      console.warn('[RESEND WARN] Resend dispatch failed, attempting Nodemailer fallback:', resendErr);
+      console.warn('[RESEND ERROR] Resend fallback failed:', resendErr);
     }
   }
 
-  // 2. Nodemailer Fallback (if SMTP config is present or standard stream transport)
+  // 3. Fallback Stream Transport
   try {
-    const transporter = nodemailer.createTransport({
+    const streamTransporter = nodemailer.createTransport({
       streamTransport: true,
       newline: 'unix',
       buffer: true
     });
 
-    const info = await transporter.sendMail({
+    const info = await streamTransporter.sendMail({
       from: '"HR Team" <hr@company.com>',
       to: candidateEmail,
       subject,
       html: htmlContent
     });
 
-    console.log(`[NODEMAILER EMAIL SUCCESS] Sent to ${candidateEmail}:`, info.envelope);
-    return { success: true, provider: 'nodemailer', info };
-  } catch (nodemailerErr) {
-    console.warn('[NODEMAILER WARN] Nodemailer fallback dispatch skipped:', nodemailerErr);
+    console.log(`[GMAIL SIMULATION] Prepared email to ${candidateEmail} for ${formattedTime}`);
+    return { success: true, provider: 'simulation', info };
+  } catch (err) {
+    console.error('Error in email simulation:', err);
+    return { success: false, error: err };
   }
-
-  // Simulation fallback logging
-  console.log(`[EMAIL SIMULATION] Sent to ${candidateEmail} for interview slot at ${formattedTime}`);
-  return { success: true, simulated: true, provider: 'simulation' };
 }
+
+export const sendInterviewConfirmationEmail = sendGmailSmtpEmail;
