@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import pdfParse from 'pdf-parse';
 import mammoth from 'mammoth';
 import { supabaseServer, isSupabaseConfigured } from '@/lib/supabase';
+import { sendCvUploadNotification } from '@/lib/notifications';
 
 export async function POST(req: Request) {
   try {
@@ -67,6 +68,17 @@ export async function POST(req: Request) {
       } catch (dbErr) {
         console.warn('Supabase DB operation skipped/failed:', dbErr);
       }
+    }
+
+    // Trigger instant email notifications: (1) To Candidate and (2) To HR Manager
+    try {
+      await sendCvUploadNotification({
+        candidateEmail: email,
+        candidateName: name,
+        fileName: file.name
+      });
+    } catch (emailErr) {
+      console.warn('Non-blocking CV upload notification error:', emailErr);
     }
 
     return NextResponse.json({

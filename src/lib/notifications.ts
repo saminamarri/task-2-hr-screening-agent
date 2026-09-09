@@ -173,3 +173,110 @@ export async function sendGmailSmtpEmail({
 }
 
 export const sendInterviewConfirmationEmail = sendGmailSmtpEmail;
+
+/**
+ * Send automated email notifications when a new candidate CV is uploaded:
+ * 1. Email to Candidate (Confirmation of CV receipt)
+ * 2. Email to HR Manager (GMAIL_USER notification)
+ */
+export async function sendCvUploadNotification({
+  candidateEmail,
+  candidateName,
+  fileName
+}: {
+  candidateEmail: string;
+  candidateName: string;
+  fileName: string;
+}) {
+  const gmailUser = process.env.GMAIL_USER;
+  const gmailPass = process.env.GMAIL_APP_PASSWORD;
+
+  if (!gmailUser || !gmailPass || gmailUser.includes('placeholder') || gmailPass.includes('placeholder')) {
+    console.log('[CV UPLOAD NOTIFICATION] Gmail credentials missing, skipping upload emails.');
+    return { success: false, reason: 'Gmail env vars missing' };
+  }
+
+  try {
+    const cleanPass = gmailPass.replace(/\s+/g, '').trim();
+
+    const transporter = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: gmailUser.trim(),
+        pass: cleanPass
+      },
+      connectionTimeout: 5000,
+      greetingTimeout: 4000,
+      socketTimeout: 5000
+    });
+
+    // 1. Email to Candidate (Application Received)
+    const candidateSubject = `Application Received: ${candidateName}`;
+    const candidateHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 16px; background-color: #ffffff;">
+        <div style="text-align: center; margin-bottom: 20px;">
+          <h2 style="color: #1e3a8a; font-size: 22px; margin: 0;">Application Received!</h2>
+          <p style="color: #64748b; font-size: 13px; margin-top: 4px;">ScreenAI HR Candidate Screening</p>
+        </div>
+        <p style="font-size: 15px; color: #334155;">Hello <strong>${candidateName}</strong>,</p>
+        <p style="font-size: 14px; color: #334155; line-height: 1.6;">
+          Thank you for submitting your CV (<strong>${fileName}</strong>). Your candidate profile has been successfully uploaded and registered in our system for AI screening.
+        </p>
+        <p style="font-size: 14px; color: #334155; line-height: 1.6;">
+          Our HR team will review your application and update you regarding the next steps shortly.
+        </p>
+        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+        <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">
+          Sent via ScreenAI HR Pro &bull; Automated Candidate Screening Platform
+        </p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: `"HR Recruitment Team" <${gmailUser.trim()}>`,
+      to: candidateEmail.trim(),
+      subject: candidateSubject,
+      html: candidateHtml
+    });
+
+    // 2. Email to HR Manager (Notification to GMAIL_USER)
+    if (gmailUser.trim().toLowerCase() !== candidateEmail.trim().toLowerCase()) {
+      const hrSubject = `📥 New CV Uploaded: ${candidateName}`;
+      const hrHtml = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #cbd5e1; border-radius: 16px; background-color: #f8fafc;">
+          <h2 style="color: #0f172a; font-size: 20px; margin: 0 0 16px 0;">📢 New Candidate CV Uploaded</h2>
+          <div style="background-color: #ffffff; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <p style="margin: 4px 0; font-size: 14px; color: #334155;"><strong>Candidate Name:</strong> ${candidateName}</p>
+            <p style="margin: 4px 0; font-size: 14px; color: #334155;"><strong>Candidate Email:</strong> ${candidateEmail}</p>
+            <p style="margin: 4px 0; font-size: 14px; color: #334155;"><strong>Document:</strong> ${fileName}</p>
+            <p style="margin: 4px 0; font-size: 14px; color: #334155;"><strong>Status:</strong> Pending AI Screening</p>
+          </div>
+          <p style="font-size: 13px; color: #64748b; margin-top: 16px;">
+            Log into your HR Dashboard to run AI screening and schedule interviews.
+          </p>
+        </div>
+      `;
+
+      await transporter.sendMail({
+        from: `"HR Screening Agent" <${gmailUser.trim()}>`,
+        to: gmailUser.trim(),
+        subject: hrSubject,
+        html: hrHtml
+      });
+    }
+
+    // 3. Dispatch Slack Webhook Alert
+    await sendSlackNotification({
+      candidateName,
+      customMessage: `📥 *New CV Uploaded*\n*Candidate:* ${candidateName} (${candidateEmail})\n*File:* ${fileName}\n*Status:* Registered for Screening`
+    });
+
+    return { success: true, provider: 'gmail_smtp' };
+  } catch (err: any) {
+    console.error('[CV UPLOAD EMAIL ERROR]', err);
+    return { success: false, error: err?.message };
+  }
+}
+
