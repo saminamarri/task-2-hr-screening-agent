@@ -36,7 +36,7 @@ export default function CandidatesPage() {
 
   const fetchCandidates = async () => {
     setIsLoading(true);
-    let fetchedData: CandidateRow[] = [];
+    let supabaseData: CandidateRow[] = [];
 
     if (isSupabaseConfigured()) {
       try {
@@ -46,7 +46,7 @@ export default function CandidatesPage() {
           .order('score', { ascending: false, nullsFirst: false });
 
         if (!error && data && data.length > 0) {
-          fetchedData = data.map(item => ({
+          supabaseData = data.map(item => ({
             id: item.id,
             name: item.name,
             email: item.email,
@@ -63,24 +63,43 @@ export default function CandidatesPage() {
       }
     }
 
-    if (fetchedData.length === 0) {
-      fetchedData = MOCK_CANDIDATES.map(cand => ({
-        id: cand.id,
-        name: cand.name,
-        email: cand.email,
-        phone: cand.phone,
-        cv_text: cand.rawCvText,
-        score: cand.screening.score,
-        score_reasoning: cand.screening.summary,
-        status: cand.status.toLowerCase() === 'shortlisted' ? 'shortlisted' :
-                cand.status.toLowerCase() === 'rejected' ? 'rejected' :
-                cand.status.toLowerCase() === 'interview scheduled' ? 'interview_scheduled' : 'pending',
-        rawCandidateObj: cand
-      }));
+    // Read candidates from localStorage (uploaded via Upload CV tab)
+    let localUploaded: CandidateRow[] = [];
+    try {
+      const localStr = localStorage.getItem('local_uploaded_candidates');
+      if (localStr) {
+        localUploaded = JSON.parse(localStr);
+      }
+    } catch (e) {
+      console.warn('Error reading local_uploaded_candidates:', e);
     }
 
-    fetchedData.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-    setCandidates(fetchedData);
+    // Default mock candidates
+    const mockRows: CandidateRow[] = MOCK_CANDIDATES.map(cand => ({
+      id: cand.id,
+      name: cand.name,
+      email: cand.email,
+      phone: cand.phone,
+      cv_text: cand.rawCvText,
+      score: cand.screening.score,
+      score_reasoning: cand.screening.summary,
+      status: cand.status.toLowerCase() === 'shortlisted' ? 'shortlisted' :
+              cand.status.toLowerCase() === 'rejected' ? 'rejected' :
+              cand.status.toLowerCase() === 'interview scheduled' ? 'interview_scheduled' : 'pending',
+      rawCandidateObj: cand
+    }));
+
+    // Merge strategy: Mock candidates -> Supabase candidates -> Local uploaded candidates (highest priority)
+    const candidatesMap = new Map<string, CandidateRow>();
+
+    mockRows.forEach(c => candidatesMap.set(c.email.toLowerCase(), c));
+    supabaseData.forEach(c => candidatesMap.set(c.email.toLowerCase(), c));
+    localUploaded.forEach(c => candidatesMap.set(c.email.toLowerCase(), c));
+
+    const finalCandidates = Array.from(candidatesMap.values());
+    finalCandidates.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+
+    setCandidates(finalCandidates);
     setIsLoading(false);
   };
 
@@ -125,6 +144,21 @@ export default function CandidatesPage() {
           const updated = prev.map(c =>
             c.id === cand.id ? { ...c, score, score_reasoning: reasoning, status } : c
           );
+
+          // Also sync with localStorage if candidate exists in local storage
+          try {
+            const localStr = localStorage.getItem('local_uploaded_candidates');
+            if (localStr) {
+              const localArr = JSON.parse(localStr);
+              const updatedLocal = localArr.map((c: any) =>
+                c.email.toLowerCase() === cand.email.toLowerCase()
+                  ? { ...c, score, score_reasoning: reasoning, status }
+                  : c
+              );
+              localStorage.setItem('local_uploaded_candidates', JSON.stringify(updatedLocal));
+            }
+          } catch (e) {}
+
           return updated.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
         });
 

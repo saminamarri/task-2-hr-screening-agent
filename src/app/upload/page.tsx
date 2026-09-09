@@ -59,7 +59,7 @@ export default function UploadPage() {
         throw new Error(data.error || 'Failed to upload and parse CV.');
       }
 
-      setUploadSuccess({
+      const uploadedCandidateObj = {
         candidateId: data.candidate.id,
         name: data.candidate.name,
         email: data.candidate.email,
@@ -67,7 +67,31 @@ export default function UploadPage() {
         fileName: data.candidate.fileName,
         cv_text: data.candidate.cv_text,
         extractedLength: data.candidate.extractedLength
-      });
+      };
+
+      setUploadSuccess(uploadedCandidateObj);
+
+      // Guarantee persistence by saving newly uploaded candidate to localStorage
+      try {
+        const existingStr = localStorage.getItem('local_uploaded_candidates');
+        const existingArr: any[] = existingStr ? JSON.parse(existingStr) : [];
+        const updatedArr = [
+          {
+            id: data.candidate.id || `cand-${Date.now()}`,
+            name: data.candidate.name,
+            email: data.candidate.email,
+            cv_text: data.candidate.cv_text,
+            score: null,
+            score_reasoning: null,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          },
+          ...existingArr.filter((c: any) => c.email.toLowerCase() !== data.candidate.email.toLowerCase())
+        ];
+        localStorage.setItem('local_uploaded_candidates', JSON.stringify(updatedArr));
+      } catch (err) {
+        console.warn('LocalStorage save error:', err);
+      }
 
       // Reset form
       setName('');
